@@ -1,0 +1,6 @@
+loguru
+tqdm
+pandas-datareader
+yfinance
+scikit-learn
+plotly
