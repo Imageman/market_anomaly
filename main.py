@@ -1,3 +1,5 @@
+from loguru import logger
+import sys
 import yfinance as yf
 import datetime
 import os
@@ -13,6 +15,7 @@ filename_csv = "data.csv"
 
 
 def download(ticker_code, ticker_shortname, description):
+    logger.debug(f"Load {ticker_shortname}")
     start = datetime.datetime.now() - datetime.timedelta(days=30)
     # start = datetime.datetime(2008, 1, 1)
     # Загрузите исторические данные для желаемого тикера
@@ -23,10 +26,61 @@ def download(ticker_code, ticker_shortname, description):
     df["Low"] = df["Low"] / df["High"]
     df.columns = [f'{ticker_shortname}_{col}' for col in df.columns]
 
+    if  len(df)<3: logger.warning(f'{ticker_shortname}: row count { len(df)}')
+    if  len(df.columns)<3: logger.warning(f'{ticker_shortname}:col count { len(df.columns)}')
+
+
     # Просмотр данных
     # print(df)
     return df
 
+
+def remove_substring_columns(df, substrings: []):
+    for substring in substrings:
+        df = df[df.columns[~df.columns.str.contains(substring)]]
+    return df
+
+def copy_substring_columns(df, substrings: []):
+    new_df = pd.DataFrame()
+    for substring in substrings:
+        matched_columns = df.columns[df.columns.str.contains(substring)]
+        if len(matched_columns) == 0:
+            logger.warning(f'copy_substring_columns: {substring} not found')
+        new_df = pd.concat([new_df, df[matched_columns]], axis=1)
+    return new_df
+
+
+def get_scores(df2: pd.DataFrame):
+    numpy_array = df2.values.astype('float32')
+    scaler = StandardScaler()
+    numpy_array = scaler.fit_transform(numpy_array)
+
+    num_components = numpy_array.shape[1] // 4  # Вы можете изменить количество компонент
+    pca = PCA(n_components=num_components, random_state=123)
+    transformed_data = pca.fit_transform(numpy_array)
+
+    combined_data = np.concatenate((numpy_array, transformed_data), axis=1)
+
+    lof = LocalOutlierFactor(n_neighbors=30, novelty=True, contamination=0.01)  # Вы можете изменить количество соседей
+    lof.fit(combined_data[:-40]) # тренируем не на всей истории, последние 40 дней игнорируем!
+
+    # anomaly_scores7 = - lof.decision_function(combined_data[-7:])
+
+    anomaly_scores = -1 * lof.decision_function(combined_data)
+
+    # Применяем медианную фильтрацию с использованием скользящего окна размером 3
+    anomaly_scores_filtered = medfilt(anomaly_scores, kernel_size=3)
+    return anomaly_scores, anomaly_scores_filtered
+
+
+logger.remove()
+logger.add("finance.log", rotation="21 MB", retention=3, compression="zip", backtrace=True,   diagnose=True)  # Automatically rotate too big file
+try:
+    logger.add(sys.stdout, colorize=True, format="<green>{time:HH:mm:ss}</green> <level>{message}</level>", level='INFO')
+except  Exception as e:
+    logger.debug(f'logger.add(sys.stdout) Error: {str(e)}')
+
+logger.info('Start Finance')
 
 print('Stage 1: download last data.')
 
@@ -40,6 +94,9 @@ df2 = df2.merge(df_s, left_index=True, right_index=True)
 
 df_s = download('^GDAXI', 'DaxG', "DAX PERFORMANCE-INDEX, Germany  stock index, share prices of largest companies")
 df2 = df2.merge(df_s, left_index=True, right_index=True)
+
+europe_cols = ['day_of_week', 'CAC40', 'FTSE100', 'DaxG', 'EUR']
+
 
 df_s = download('^DJI', 'Dow', "Dow Jones Industrial Average")
 df2 = df2.merge(df_s, left_index=True, right_index=True)
@@ -93,7 +150,7 @@ if os.path.exists(filename_csv):
     df2 = merged_df.loc[~merged_df.index.duplicated(keep='first')]
     del merged_df
 else:
-    print(f"File {filename_csv} not found")
+    logger.info(f"File {filename_csv} not found")
 
 print('Stage 1.2: save data to csv.')
 df2.to_csv(filename_csv)
@@ -151,37 +208,12 @@ for col in df2.columns:
 
 print('Stage 3: process data.')
 
-
-def get_scores(df2: pd.DataFrame):
-    numpy_array = df2.values.astype('float32')
-    scaler = StandardScaler()
-    numpy_array = scaler.fit_transform(numpy_array)
-
-    num_components = numpy_array.shape[1] // 4  # Вы можете изменить количество компонент
-    pca = PCA(n_components=num_components)
-    transformed_data = pca.fit_transform(numpy_array)
-
-    combined_data = np.concatenate((numpy_array, transformed_data), axis=1)
-
-    lof = LocalOutlierFactor(n_neighbors=30, novelty=True, contamination=0.01)  # Вы можете изменить количество соседей
-    lof.fit(combined_data[:-40]) # тренируем не на всей истории, последние 40 дней игнорируем!
-
-    # anomaly_scores7 = - lof.decision_function(combined_data[-7:])
-
-    anomaly_scores = -1 * lof.decision_function(combined_data)
-
-    # Применяем медианную фильтрацию с использованием скользящего окна размером 3
-    anomaly_scores_filtered = medfilt(anomaly_scores, kernel_size=3)
-    return anomaly_scores, anomaly_scores_filtered
-
-
 import plotly.graph_objects as go
 
 anomaly_scores, anomaly_scores_filtered = get_scores(df2)
-print('\nScores for last 7 days (a high near 0 result means an anomaly):')
-print(anomaly_scores[-7:])
+logger.info('\nScores for last 7 days (a high near 0 result means an anomaly):')
+logger.info(anomaly_scores[-7:])
 
-# Создаем объект графа
 fig = go.Figure()
 
 # renge_days = len(df2.index) # full range
@@ -194,27 +226,12 @@ fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=anomaly_scores_filtered[-r
                          line=dict(color='blue'), name='Filtered\nAnomaly Scores'))
 
 
-def remove_substring_columns(df, substrings: []):
-    for substring in substrings:
-        df = df[df.columns[~df.columns.str.contains(substring)]]
-    return df
-
-
-def copy_substring_columns(df, substrings: []):
-    new_df = pd.DataFrame()
-    for substring in substrings:
-        matched_columns = df.columns[df.columns.str.contains(substring)]
-        new_df = pd.concat([new_df, df[matched_columns]], axis=1)
-    return new_df
-
-
 moneys_cols = ['day_of_week', 'JPY', 'EUR', 'GBP']
 df_small = copy_substring_columns(df2, moneys_cols)
 money_anomaly_scores, money_anomaly_scores_filtered = get_scores(df_small)
 fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=money_anomaly_scores_filtered[-renge_days:], mode='lines',
                          line=dict(color='red'), opacity=0.2, name='Foreign exchange anomalies'))
 
-europe_cols = ['day_of_week', '^FCHI', '^FTSE', '^GDAXI', 'EUR']
 df_small = copy_substring_columns(df2, europe_cols)
 eur_anomaly_scores, eur_anomaly_scores_filtered = get_scores(df_small)
 fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=eur_anomaly_scores_filtered[-renge_days:], mode='lines',
@@ -234,3 +251,31 @@ fig.update_layout(
 # Сохраняем график в виде HTML-файла
 fig.write_html('plot.html')
 print('Stage 4: plot.html saved.')
+
+fin_score = ( np.max(anomaly_scores[-7:])+np.max(anomaly_scores[-3:])+anomaly_scores[-1])/3
+
+# Открываем файл (или создаем, если его нет) в режиме добавления
+with open('res.csv', 'a') as f:
+    # Добавляем новую строку
+    f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(fin_score)}, {anomaly_scores[-1]}, {commodity_anomaly_scores[-1]}\n')
+
+# Проверяем, существует ли файл
+if os.path.exists('result.txt'):
+    # Удаляем файл
+    os.remove('result.txt')
+
+
+if datetime.datetime.now().date().day==1:
+    # Находим индекс максимального элемента
+    index_max = np.argmax(anomaly_scores[-30:])
+
+    # Получаем значение в колонке 'Date' (это у нас индекс!)
+    date_value = df2.index[len(df2) - 30 + index_max]
+    with open('result.txt', 'w') as f:
+        f.write(f'За последние 30 дней максимальная аномалия {np.max(anomaly_scores[-30:]):.3} была {date_value.strftime("%Y-%m-%d")}')
+
+if fin_score>1 or anomaly_scores[-1]>1:
+    with open('result.txt', 'w') as f:
+        f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(fin_score)}, {anomaly_scores[-1]}')
+
+logger.info('Fin.\n')
