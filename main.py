@@ -64,8 +64,6 @@ def get_scores(df2: pd.DataFrame):
     lof = LocalOutlierFactor(n_neighbors=30, novelty=True, contamination=0.01)  # Вы можете изменить количество соседей
     lof.fit(combined_data[:-40]) # тренируем не на всей истории, последние 40 дней игнорируем!
 
-    # anomaly_scores7 = - lof.decision_function(combined_data[-7:])
-
     anomaly_scores = -1 * lof.decision_function(combined_data)
 
     # Применяем медианную фильтрацию с использованием скользящего окна размером 3
@@ -147,7 +145,7 @@ if os.path.exists(filename_csv):
     #         df1[col] = df1[col].astype('float32')
 
     merged_df = pd.concat([df1, df2])
-    df2 = merged_df.loc[~merged_df.index.duplicated(keep='first')]
+    df2 = merged_df.loc[~merged_df.index.duplicated(keep='last')]
     del merged_df
 else:
     logger.info(f"File {filename_csv} not found")
