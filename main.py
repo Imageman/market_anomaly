@@ -272,7 +272,7 @@ if datetime.datetime.now().date().day==1:
     with open('result.txt', 'w') as f:
         f.write(f'За последние 30 дней максимальная аномалия {np.max(anomaly_scores[-30:]):.3} была {date_value.strftime("%Y-%m-%d")}')
 
-if fin_score>1 or anomaly_scores[-1]>1:
+if fin_score>0.5 or anomaly_scores[-1]>0.5:
     with open('result.txt', 'w') as f:
         f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(fin_score)}, {anomaly_scores[-1]}')
 
