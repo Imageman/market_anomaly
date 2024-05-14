@@ -13,11 +13,13 @@ from scipy.signal import medfilt
 
 filename_csv = "data.csv"
 
+DOWNLOAD_full_range=True
+fit_days_ignore = -45 # number of last day to ignore in fit
 
 def download(ticker_code, ticker_shortname, description):
     logger.debug(f"Load {ticker_shortname}")
     start = datetime.datetime.now() - datetime.timedelta(days=30)
-    # start = datetime.datetime(2008, 1, 1)
+    if DOWNLOAD_full_range: start = datetime.datetime(2008, 1, 1)
     # Загрузите исторические данные для желаемого тикера
     df = yf.download(ticker_code, start)
     df.drop("Adj Close", axis=1, inplace=True)
@@ -62,7 +64,8 @@ def get_scores(df2: pd.DataFrame):
     combined_data = np.concatenate((numpy_array, transformed_data), axis=1)
 
     lof = LocalOutlierFactor(n_neighbors=30, novelty=True, contamination=0.01)  # Вы можете изменить количество соседей
-    lof.fit(combined_data[:-40]) # тренируем не на всей истории, последние 40 дней игнорируем!
+
+    lof.fit(combined_data[:fit_days_ignore]) # тренируем не на всей истории, последние x дней игнорируем!
 
     anomaly_scores = -1 * lof.decision_function(combined_data)
 
@@ -132,6 +135,19 @@ df2 = df2.merge(df_s, left_index=True, right_index=True)
 
 df_s = download('GBP=X', 'GBP', "USD/GBP - доллар к фунту")
 df2 = df2.merge(df_s, left_index=True, right_index=True)
+
+def get_merge(data_frame:pd.DataFrame, yachoo_code:str, name:str, description:str):
+    df_s = download(yachoo_code, name, description)
+    data_frame = data_frame.merge(df_s, left_index=True, right_index=True)
+    return data_frame
+
+df2 = get_merge(df2,'^VIX','VIX','индекс CBOE Volatility Index (VIX)')
+df2 = get_merge(df2,'^VXN','CVX','индекс CBOE NASDAQ Volatility Index')
+df2 = get_merge(df2,'^TNX','TNX','доходность 10-летних казначейских облигаций США')
+df2 = get_merge(df2,'^FVX','FVX','кривая доходности казначейских облигаций')
+df2 = get_merge(df2,'^IRX','IRX','кривая доходности муниципальных облигаций')
+df2 = get_merge(df2,'BTC-USD','Bitcoin','Bitcoin USD')
+
 
 # for col in df2.columns:
 #     if df2[col].dtype == 'float64':
@@ -224,7 +240,7 @@ fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=anomaly_scores_filtered[-r
                          line=dict(color='blue'), name='Filtered\nAnomaly Scores'))
 
 
-moneys_cols = ['day_of_week', 'JPY', 'EUR', 'GBP']
+moneys_cols = ['day_of_week', 'JPY', 'EUR', 'GBP','Bitcoin']
 df_small = copy_substring_columns(df2, moneys_cols)
 money_anomaly_scores, money_anomaly_scores_filtered = get_scores(df_small)
 fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=money_anomaly_scores_filtered[-renge_days:], mode='lines',
