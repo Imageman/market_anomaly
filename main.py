@@ -266,12 +266,12 @@ fig.update_layout(
 fig.write_html('plot.html')
 print('Stage 4: plot.html saved.')
 
-fin_score = ( np.max(anomaly_scores[-7:])+np.max(anomaly_scores[-3:])+anomaly_scores[-1])/3
+final_score = (np.max(anomaly_scores[-7:]) + np.max(anomaly_scores[-3:]) + anomaly_scores[-1]) / 3
 
 # Открываем файл (или создаем, если его нет) в режиме добавления
 with open('res.csv', 'a') as f:
     # Добавляем новую строку
-    f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(fin_score)}, {anomaly_scores[-1]}, {commodity_anomaly_scores[-1]}\n')
+    f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(final_score)}, {anomaly_scores[-1]}, {commodity_anomaly_scores[-1]}\n')
 
 # Проверяем, существует ли файл
 if os.path.exists('result.txt'):
@@ -288,8 +288,8 @@ if datetime.datetime.now().date().day==1:
     with open('result.txt', 'w') as f:
         f.write(f'За последние 30 дней максимальная аномалия {np.max(anomaly_scores[-30:]):.3} была {date_value.strftime("%Y-%m-%d")}')
 
-if fin_score>0.5 or anomaly_scores[-1]>0.5:
+if final_score>1.1 or anomaly_scores[-1]>1.1:
     with open('result.txt', 'w') as f:
-        f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(fin_score)}, {anomaly_scores[-1]}')
+        f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(final_score)}, {anomaly_scores[-1]}')
 
 logger.info('Fin.\n')
