@@ -10,6 +10,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.decomposition import PCA
 from scipy.signal import medfilt
+from datetime import date
+
+TRESHOLD_FOR_STD_COLS = 3.2
 
 filename_csv = "data.csv"
 
@@ -52,6 +55,58 @@ def copy_substring_columns(df, substrings: []):
     return new_df
 
 
+def process_combined_data(combined_data, threshold):
+    try:
+        # Ensure combined_data is a 2D numpy array
+        if not isinstance(combined_data, np.ndarray) or combined_data.ndim != 2:
+            raise ValueError("combined_data must be a 2D NumPy array.")
+
+        # logger.debug(f"Initial combined_data:\n{combined_data}")
+
+        # Take the absolute values
+        abs_data = np.abs(combined_data)
+        # logger.debug(f"Absolute value of data:\n{abs_data}")
+
+        # Check if there are at least three rows
+        if abs_data.shape[0] < 3:
+            raise ValueError(
+                "combined_data must have at least three rows to compute the median of the last three rows.")
+
+        # Compute the median of the last three rows
+        last_three_rows = abs_data[-3:]
+        median_last_three_rows = np.median(last_three_rows, axis=0)
+        logger.debug(f"Median of the last three rows:\n{median_last_three_rows}")
+
+        # Find indices of columns where median values are greater than the threshold
+        column_indices = np.where(median_last_three_rows > threshold)[0]
+        logger.info(f"Column indices where median value > threshold ({threshold}): {column_indices}")
+
+        return column_indices
+
+    except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
+        return None
+
+
+def get_column_names(df, column_indices):
+    try:
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("df must be a Pandas DataFrame.")
+
+        column_names = []
+        for i in column_indices:
+            if i < len(df.columns):
+                column_names.append(df.columns[i])
+            else:
+                column_names.append(f'PCA_cols{i}')
+
+        logger.info(f"Column names: {column_names}")
+        return column_names
+
+    except Exception as e:
+        logger.error(f"An error occurred while getting column names: {str(e)}")
+        return None
+
 def get_scores(df2: pd.DataFrame):
     numpy_array = df2.values.astype('float32')
     scaler = StandardScaler()
@@ -60,9 +115,12 @@ def get_scores(df2: pd.DataFrame):
     num_components = numpy_array.shape[1] // 4  # Вы можете изменить количество компонент
     pca = PCA(n_components=num_components, random_state=123)
     transformed_data = pca.fit_transform(numpy_array)
+    transformed_data = scaler.fit_transform(transformed_data)
 
     combined_data = np.concatenate((numpy_array, transformed_data), axis=1)
 
+    std_anomale_cols=process_combined_data(combined_data, TRESHOLD_FOR_STD_COLS)
+    std_anomale_cols=get_column_names(df2,std_anomale_cols)
     lof = LocalOutlierFactor(n_neighbors=30, novelty=True, contamination=0.01)  # Вы можете изменить количество соседей
 
     lof.fit(combined_data[:fit_days_ignore]) # тренируем не на всей истории, последние x дней игнорируем!
@@ -71,7 +129,7 @@ def get_scores(df2: pd.DataFrame):
 
     # Применяем медианную фильтрацию с использованием скользящего окна размером 3
     anomaly_scores_filtered = medfilt(anomaly_scores, kernel_size=3)
-    return anomaly_scores, anomaly_scores_filtered
+    return anomaly_scores, anomaly_scores_filtered, std_anomale_cols
 
 
 logger.remove()
@@ -224,14 +282,14 @@ print('Stage 3: process data.')
 
 import plotly.graph_objects as go
 
-anomaly_scores, anomaly_scores_filtered = get_scores(df2)
+anomaly_scores, anomaly_scores_filtered, std_anomale_cols = get_scores(df2)
 logger.info('\nScores for last 7 days (a high near 0 result means an anomaly):')
 logger.info(anomaly_scores[-7:])
 
 fig = go.Figure()
 
-# renge_days = len(df2.index) # full range
-renge_days = 365
+renge_days = len(df2.index) # full range
+# renge_days = 365
 
 # Добавляем линию на график
 fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=anomaly_scores[-renge_days:], mode='lines',
@@ -242,17 +300,17 @@ fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=anomaly_scores_filtered[-r
 
 moneys_cols = ['day_of_week', 'JPY', 'EUR', 'GBP','Bitcoin']
 df_small = copy_substring_columns(df2, moneys_cols)
-money_anomaly_scores, money_anomaly_scores_filtered = get_scores(df_small)
+money_anomaly_scores, money_anomaly_scores_filtered, _ = get_scores(df_small)
 fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=money_anomaly_scores_filtered[-renge_days:], mode='lines',
                          line=dict(color='red'), opacity=0.2, name='Foreign exchange anomalies'))
 
 df_small = copy_substring_columns(df2, europe_cols)
-eur_anomaly_scores, eur_anomaly_scores_filtered = get_scores(df_small)
+eur_anomaly_scores, eur_anomaly_scores_filtered, _ = get_scores(df_small)
 fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=eur_anomaly_scores_filtered[-renge_days:], mode='lines',
                          line=dict(color='green'), opacity=0.3, name='European zone anomalies'))
 
 df_small = copy_substring_columns(df2, commodity_cols)
-commodity_anomaly_scores, commodity_anomaly_scores_filtered = get_scores(df_small)
+commodity_anomaly_scores, commodity_anomaly_scores_filtered, _ = get_scores(df_small)
 fig.add_trace(go.Scatter(x=df2.index[-renge_days:], y=commodity_anomaly_scores_filtered[-renge_days:], mode='lines',
                          line=dict(color='darkgoldenrod'), opacity=0.5, name='Commodity anomalies'))
 
@@ -261,6 +319,34 @@ fig.update_layout(
     title_text='Result of stock market anomaly detection (a high result means an anomaly)<BR><sub>Note that these are '
                'not absolute sales or price values, but the degree of abnormality of changes in values and the '
                'abnormality of the whole pattern on a particular day in history.</sub>')
+
+if len(std_anomale_cols)>0:
+    current_date = date.today()
+    date_string = current_date.strftime("%d.%m.%Y")
+    annotations=f'{date_string}<BR>Anomalous columns:<BR>{"<BR>".join(std_anomale_cols)}'
+    # Определение аннотаций
+    annotations = [
+        dict(
+            xref='paper',
+            yref='paper',
+            x=1.02,  # немного правее правого края графика
+            y=0,  # размещаем аннотацию внизу графика
+            xanchor='left',
+            yanchor='bottom',
+            text=annotations,
+            showarrow=False,
+            align='left',
+            font=dict(size=12)
+        )
+    ]
+    fig.update_layout(annotations=annotations, legend=dict(
+        x=1.02,
+        y=1,
+        traceorder='normal',
+        font=dict(
+            size=12,
+        ),
+    ))
 
 # Сохраняем график в виде HTML-файла
 fig.write_html('plot.html')
@@ -279,14 +365,16 @@ if os.path.exists('result.txt'):
     os.remove('result.txt')
 
 
-if datetime.datetime.now().date().day==1:
+if datetime.datetime.now().date().day==3:
     # Находим индекс максимального элемента
     index_max = np.argmax(anomaly_scores[-30:])
 
     # Получаем значение в колонке 'Date' (это у нас индекс!)
     date_value = df2.index[len(df2) - 30 + index_max]
+    msg=f'За последние 30 дней максимальная аномалия {np.max(anomaly_scores[-30:]):.3} была {date_value.strftime("%Y-%m-%d")}'
+    logger.info(f'Тестовое сообщение: {msg}')
     with open('result.txt', 'w') as f:
-        f.write(f'За последние 30 дней максимальная аномалия {np.max(anomaly_scores[-30:]):.3} была {date_value.strftime("%Y-%m-%d")}')
+        f.write(msg)
 
 if final_score>1.1 or anomaly_scores[-1]>1.1:
     with open('result.txt', 'w') as f:
