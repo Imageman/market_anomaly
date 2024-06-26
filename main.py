@@ -12,12 +12,12 @@ from sklearn.decomposition import PCA
 from scipy.signal import medfilt
 from datetime import date
 
-TRESHOLD_FOR_STD_COLS = 3.2
+TRESHOLD_FOR_STD_COLS = 3.0
 
 filename_csv = "data.csv"
 
 DOWNLOAD_full_range=True
-fit_days_ignore = -45 # number of last day to ignore in fit
+fit_days_ignore = -60 # number of last day to ignore in fit
 
 def download(ticker_code, ticker_shortname, description):
     logger.debug(f"Load {ticker_shortname}")
@@ -160,9 +160,11 @@ europe_cols = ['day_of_week', 'CAC40', 'FTSE100', 'DaxG', 'EUR']
 df_s = download('^DJI', 'Dow', "Dow Jones Industrial Average")
 df2 = df2.merge(df_s, left_index=True, right_index=True)
 
+# отслеживает 2000 малых компаний, которые находятся в индексе Russell 3000. для отслеживания малых компаний в США.
 df_s = download('^RUT', 'Russe', "Russell 2000")
 df2 = df2.merge(df_s, left_index=True, right_index=True)
 
+# включает почти все акции, которые котируются на фондовой бирже NASDAQ; сильно склоняется к компаниям в секторе информационных технологий
 df_s = download('^IXIC', 'NASDc', "NASDAQ Composite")
 df2 = df2.merge(df_s, left_index=True, right_index=True)
 
@@ -235,7 +237,10 @@ df2.sort_index(inplace=True)
 df2 = df2.resample('D').asfreq()
 # 0 превратим в пропущенные значения и просто интерполируем
 df2.replace(0.0, np.nan, inplace=True)
-df2 = df2.interpolate()
+# df2 = df2.interpolate()
+# Используем метод fillna с forward fill (ffill)
+# Это заполнит пропущенные значения последним известным значением
+df2 = df2.ffill()
 
 # Feature engenering
 
@@ -268,7 +273,10 @@ for col in df2.columns:
         df2[col + '_rolling_mean_delta'] = df2[col].rolling(window=7).mean() - df2[col + '_rolling_mean']
     df2 = df2.copy()
 
-df2 = df2.interpolate()  # еще раз интерполируем для заполнения
+# df2 = df2.interpolate()  # еще раз интерполируем для заполнения
+# Используем метод fillna с forward fill (ffill)
+# Это заполнит пропущенные значения последним известным значением
+df2 = df2.ffill()
 df2 = df2.fillna(df2.mean())
 
 for col in df2.columns:
@@ -365,19 +373,19 @@ if os.path.exists('result.txt'):
     os.remove('result.txt')
 
 
-if datetime.datetime.now().date().day==3:
+if datetime.datetime.now().date().day==5:
     # Находим индекс максимального элемента
     index_max = np.argmax(anomaly_scores[-30:])
 
     # Получаем значение в колонке 'Date' (это у нас индекс!)
     date_value = df2.index[len(df2) - 30 + index_max]
-    msg=f'За последние 30 дней максимальная аномалия {np.max(anomaly_scores[-30:]):.3} была {date_value.strftime("%Y-%m-%d")}'
+    msg=f'In the last 30 days, the maximum anomaly  {np.max(anomaly_scores[-30:]):.3} was {date_value.strftime("%Y-%m-%d")}'
     logger.info(f'Тестовое сообщение: {msg}')
-    with open('result.txt', 'w') as f:
+    with open('result.txt', 'w', encoding='utf-8') as f:
         f.write(msg)
 
 if final_score>1.1 or anomaly_scores[-1]>1.1:
-    with open('result.txt', 'w') as f:
+    with open('result.txt', 'w', encoding='utf-8') as f:
         f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(final_score)}, {anomaly_scores[-1]}')
 
 logger.info('Fin.\n')

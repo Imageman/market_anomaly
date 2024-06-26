@@ -1,4 +1,4 @@
-
+chcp 65001
 :: Batch script to setup a virtual development environment
 
 @echo off
@@ -38,13 +38,16 @@ call %venv_folder%\Scripts\activate.bat
 :end
 .\.venv\Scripts\python.exe "%script_name%"
 
-if exist result.txt (
-  set /p result=<result.txt
-  c:\Users\Vovik\Dropbox\Appl\Telega\postHour.bat %result%
-)
-
 del d:\Vovik\Docs\Public\finance_plot.html 
 copy plot.html d:\Vovik\Docs\Public\finance_plot.html
+
+setlocal enabledelayedexpansion
+if exist result.txt (
+  set /P result=<result.txt
+  echo "!result!" >> telega.log
+  call c:\Users\Vovik\Dropbox\Appl\Telega\postHour.bat "!result!"
+)
+
 
 d:
 cd d:\Vovik\Docs\Public\
