@@ -24,14 +24,16 @@ def download(ticker_code, ticker_shortname, description):
     start = datetime.datetime.now() - datetime.timedelta(days=30)
     if DOWNLOAD_full_range: start = datetime.datetime(2008, 1, 1)
     # Загрузите исторические данные для желаемого тикера
-    df = yf.download(ticker_code, start)
+    df = yf.download(ticker_code, start, auto_adjust=False)
     df.drop("Adj Close", axis=1, inplace=True)
     df.drop("Close", axis=1, inplace=True)
     df["Open"] = df["Open"] / df["High"]
     df["Low"] = df["Low"] / df["High"]
     df.columns = [f'{ticker_shortname}_{col}' for col in df.columns]
 
-    if  len(df)<3: logger.warning(f'{ticker_shortname}: row count { len(df)}')
+    if  len(df)<3: 
+        logger.warning(f'{ticker_shortname}: row count { len(df)}')
+        exit(1)
     if  len(df.columns)<3: logger.warning(f'{ticker_shortname}:col count { len(df.columns)}')
 
 
@@ -78,7 +80,7 @@ def process_combined_data(combined_data, threshold):
         logger.debug(f"Median of the last three rows:\n{median_last_three_rows}")
 
         # Find indices of columns where median values are greater than the threshold
-        column_indices = np.where(median_last_three_rows > threshold)[0]
+        column_indices = np.nonzero(median_last_three_rows > threshold)[0]
         logger.info(f"Column indices where median value > threshold ({threshold}): {column_indices}")
 
         return column_indices
@@ -212,6 +214,9 @@ df2 = get_merge(df2,'BTC-USD','Bitcoin','Bitcoin USD')
 # for col in df2.columns:
 #     if df2[col].dtype == 'float64':
 #         df2[col] = df2[col].astype('float32')
+# делаем переименовывание колонок в старый формат
+df2.columns = df2.columns.str.replace(r"_\('([^']+)',\s*'[^']+'\)", r"_\1", regex=True)
+
 
 if os.path.exists(filename_csv):
     print('Stage 1.1: downloading previously saved historical data.')
@@ -384,7 +389,7 @@ if datetime.datetime.now().date().day==5:
     with open('result.txt', 'w', encoding='utf-8') as f:
         f.write(msg)
 
-if final_score>1.1 or anomaly_scores[-1]>1.1:
+if final_score>0.6 or anomaly_scores[-1]>0.7:
     with open('result.txt', 'w', encoding='utf-8') as f:
         f.write(f'{datetime.datetime.now().date().strftime("%Y-%m-%d")}, {str(final_score)}, {anomaly_scores[-1]}')
 
